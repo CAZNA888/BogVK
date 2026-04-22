@@ -135,14 +135,14 @@ function initializeBridge() {
             bridge.platform.on('pause_state_changed', isPaused => sendMessageToUnity('OnPauseStateChanged', isPaused.toString()))
 
             let unityLoader = document.createElement('script')
-            unityLoader.src = 'Build/cee3bfd5589651a8b16e2a12b8abe5b3.loader.js'
+            unityLoader.src = 'Build/BogPl.loader.js'
             unityLoader.onload = () => {
                 createUnityInstance(
                     CANVAS,
                     {
-                        dataUrl: 'Build/2e60624bc715db85729992244e5e54d5.data.unityweb',
-                        frameworkUrl: 'Build/2aa5020d3ef0a976dedc9d5ba256a198.framework.js.unityweb',
-                        codeUrl: 'Build/d17aa850bfd867b20a85232b0350547b.wasm.unityweb',
+                        dataUrl: 'Build/BogPl.data.unityweb',
+                        frameworkUrl: 'Build/BogPl.framework.js.unityweb',
+                        codeUrl: 'Build/BogPl.wasm.unityweb',
                         streamingAssetsUrl: 'StreamingAssets',
                         autoSyncPersistentDataPath: true,
                         companyName: 'AltTab3000',
