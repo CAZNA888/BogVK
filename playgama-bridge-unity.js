@@ -127,6 +127,7 @@ function initializeBridge() {
         .initialize()
         .then(() => {
             bridge.game.setLoadingProgress(0)
+            document.getElementById('pre-playgama-loader')?.classList.add('hidden')
             bridge.advertisement.on('banner_state_changed', state => sendMessageToUnity('OnBannerStateChanged', state))
             bridge.advertisement.on('interstitial_state_changed', state => sendMessageToUnity('OnInterstitialStateChanged', state))
             bridge.advertisement.on('rewarded_state_changed', state => sendMessageToUnity('OnRewardedStateChanged', state))
@@ -135,14 +136,14 @@ function initializeBridge() {
             bridge.platform.on('pause_state_changed', isPaused => sendMessageToUnity('OnPauseStateChanged', isPaused.toString()))
 
             let unityLoader = document.createElement('script')
-            unityLoader.src = 'Build/BogPl.loader.js'
+            unityLoader.src = 'Build/BogVK.loader.js'
             unityLoader.onload = () => {
                 createUnityInstance(
                     CANVAS,
                     {
-                        dataUrl: 'Build/BogPl.data.unityweb',
-                        frameworkUrl: 'Build/BogPl.framework.js.unityweb',
-                        codeUrl: 'Build/BogPl.wasm.unityweb',
+                        dataUrl: 'Build/BogVK.data.unityweb',
+                        frameworkUrl: 'Build/BogVK.framework.js.unityweb',
+                        codeUrl: 'Build/BogVK.wasm.unityweb',
                         streamingAssetsUrl: 'StreamingAssets',
                         autoSyncPersistentDataPath: true,
                         companyName: 'AltTab3000',
