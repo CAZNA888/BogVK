@@ -119,51 +119,99 @@ function installMobilePageVisibilityFallback() {
     syncDocumentHiddenToUnity()
 }
 
-/** VK клиент (Mini App / встроенный WebView): события скрытия/восстановления мини-приложения. */
+/** VK Mini App (dev.vk.com/bridge): VKWebAppViewHide / VKWebAppViewRestore → Unity OnVisibilityStateChanged. */
 function installVkBridgeVisibilityFallback() {
     if (window._playgamaVkBridgeVisibilityInstalled) return
     window._playgamaVkBridgeVisibilityInstalled = true
 
-    let wired = false
+    var wired = false
+    var umdLoadAttempted = false
+    /** Без этого poll каждые 200ms повторно вызывает vk.send('VKWebAppInit'), пока await не завершился. */
+    var vkInitChainStarted = false
+    var VK_BRIDGE_UMD = 'https://unpkg.com/@vkontakte/vk-bridge@2.14.0/dist/index.umd.js'
 
-    function wireVkBridge(vk) {
-        if (wired || !vk || typeof vk.subscribe !== 'function') return false
-        const handler = function(e) {
-            const d = e && e.detail
-            if (!d) return
-            const type = d.type
-            if (type === 'VKWebAppViewHide') {
-                pushClientVisibilityToUnity('Hidden')
-            } else if (type === 'VKWebAppViewRestore') {
-                pushClientVisibilityToUnity('Visible')
-            }
+    var handler = function(e) {
+        var d = e && e.detail
+        if (!d || !d.type) return
+        if (d.type === 'VKWebAppViewHide') {
+            pushClientVisibilityToUnity('Hidden')
+        } else if (d.type === 'VKWebAppViewRestore') {
+            pushClientVisibilityToUnity('Visible')
         }
+    }
+
+    function attachSubscribe(vk) {
+        if (wired || !vk) return
         try {
             vk.subscribe(handler)
             wired = true
-            return true
+            console.log('[Playgama template] vk-bridge: VKWebAppViewHide / ViewRestore → Unity')
         } catch (err) {
             console.warn('[Playgama template] vkBridge.subscribe failed:', err)
-            return false
         }
     }
 
-    if (typeof window.vkBridge !== 'undefined' && wireVkBridge(window.vkBridge)) {
-        return
+    function runVkInitThenSubscribe(vk) {
+        if (wired || !vk) return
+        if (vkInitChainStarted) return
+        vkInitChainStarted = true
+        if (typeof vk.send === 'function') {
+            vk.send('VKWebAppInit')
+                .then(function() {
+                    attachSubscribe(vk)
+                })
+                .catch(function() {
+                    attachSubscribe(vk)
+                })
+        } else {
+            attachSubscribe(vk)
+        }
     }
 
-    let attempts = 0
-    const maxAttempts = 50
-    const pollMs = 200
-    const timer = setInterval(function() {
-        if (!wired && typeof window.vkBridge !== 'undefined') {
-            if (wireVkBridge(window.vkBridge)) {
-                clearInterval(timer)
-                return
+    function tryWireInjectedBridge() {
+        if (wired) return true
+        if (typeof window.vkBridge !== 'undefined') {
+            runVkInitThenSubscribe(window.vkBridge)
+        }
+        return wired
+    }
+
+    function loadVkBridgeUmd() {
+        if (umdLoadAttempted) return
+        umdLoadAttempted = true
+        var s = document.createElement('script')
+        s.src = VK_BRIDGE_UMD
+        s.async = true
+        s.onload = function() {
+            if (typeof window.vkBridge !== 'undefined') {
+                runVkInitThenSubscribe(window.vkBridge)
+            } else {
+                console.warn('[Playgama template] vk-bridge UMD loaded without window.vkBridge')
             }
         }
-        if (++attempts >= maxAttempts) {
-            clearInterval(timer)
+        s.onerror = function() {
+            console.warn('[Playgama template] vk-bridge UMD failed to load')
+        }
+        document.head.appendChild(s)
+    }
+
+    tryWireInjectedBridge()
+
+    var attempts = 0
+    var maxAttempts = 40
+    var pollMs = 200
+    var pollTimer = setInterval(function() {
+        if (wired) {
+            clearInterval(pollTimer)
+            return
+        }
+        tryWireInjectedBridge()
+        attempts++
+        if (attempts >= maxAttempts) {
+            clearInterval(pollTimer)
+            if (!wired && !umdLoadAttempted && typeof window.vkBridge === 'undefined') {
+                loadVkBridgeUmd()
+            }
         }
     }, pollMs)
 }
