@@ -89,41 +89,33 @@ let bridgeTimeout = null
 let bridgeLoaded = false
 let unityBootStarted = false
 
-/**
- * Мобильный фон (переключатель приложений / недавние): один канал в Unity = тот же OnVisibilityStateChanged,
- * что и Playgama. События + опрос 250 ms с дедупом — если ОС не шлёт visibility/blur, всё равно поймаем
- * document.hidden или потерю document.hasFocus().
- */
-function installMobileBackgroundVisibilityFix() {
-    if (window._playgamaMobileBackgroundVisibilityInstalled) return
-    window._playgamaMobileBackgroundVisibilityInstalled = true
+/** Мобильный VK/WebView: явный Page Visibility API + blur/focus, дубликаты глушим (тот же канал что Playgama). */
+function installMobilePageVisibilityFallback() {
+    if (window._playgamaMobilePageVisibilityFallbackInstalled) return
+    window._playgamaMobilePageVisibilityFallbackInstalled = true
     if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return
 
-    let lastSent = null
-
-    function pushVisibility(state) {
-        if (lastSent === state) return
-        lastSent = state
+    let lastPushedVisibility = null
+    function pushUnityVisibility(state) {
+        if (lastPushedVisibility === state) return
+        lastPushedVisibility = state
         sendMessageToUnity('OnVisibilityStateChanged', state)
     }
 
-    function recomputeFromDocument() {
-        const inBackground =
-            document.hidden ||
-            (typeof document.hasFocus === 'function' && !document.hasFocus())
-        pushVisibility(inBackground ? 'Hidden' : 'Visible')
+    function syncDocumentHiddenToUnity() {
+        pushUnityVisibility(document.hidden ? 'Hidden' : 'Visible')
     }
 
-    window.addEventListener('blur', () => pushVisibility('Hidden'))
-    window.addEventListener('focus', () => recomputeFromDocument())
-    document.addEventListener('visibilitychange', recomputeFromDocument)
-    window.addEventListener('pagehide', () => pushVisibility('Hidden'))
-    window.addEventListener('pageshow', () => {
-        lastSent = null
-        recomputeFromDocument()
+    document.addEventListener('visibilitychange', syncDocumentHiddenToUnity)
+
+    window.addEventListener('blur', () => {
+        pushUnityVisibility('Hidden')
+    })
+    window.addEventListener('focus', () => {
+        syncDocumentHiddenToUnity()
     })
 
-    setInterval(recomputeFromDocument, 250)
+    syncDocumentHiddenToUnity()
 }
 
 function setBridgeLoadingProgressSafe(percent) {
@@ -146,9 +138,9 @@ function startUnityBoot() {
         createUnityInstance(
             CANVAS,
             {
-                dataUrl: 'Build/cc692d4ea4195cd7e94880f4db86f104.data.unityweb',
-                frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.unityweb',
-                codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.unityweb',
+                dataUrl: 'Build/bb4aa3f0bd1c978d8e144532cdf4e748.data.unityweb',
+                frameworkUrl: 'Build/e7c0729e480d7ba425db8d3368b6a167.framework.js.unityweb',
+                codeUrl: 'Build/3eaac7856daeb54226ba4b1fcf4d7037.wasm.unityweb',
                 streamingAssetsUrl: 'StreamingAssets',
                 companyName: 'AltTab3000',
                 productName: 'Mini Games Obby Challenge',
@@ -161,7 +153,7 @@ function startUnityBoot() {
                 window.unityInstance = unityInstance
                 CANVAS.focus()
                 flushMessageQueue()
-                installMobileBackgroundVisibilityFix()
+                installMobilePageVisibilityFallback()
             })
             .catch((error) => {
                 console.error(error)
