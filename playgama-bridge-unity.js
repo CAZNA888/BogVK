@@ -39,7 +39,7 @@ function onUnityLoadingProgressChanged(progress) {
             clearInterval(progressBarFillingInterval)
             progressBarFillingInterval = null
         }
-        bridge.game.setLoadingProgress(100)
+        setBridgeLoadingProgressSafe(100)
         return
     }
 
@@ -53,7 +53,7 @@ function onUnityLoadingProgressChanged(progress) {
         return
     }
 
-    bridge.game.setLoadingProgress(progress * 100)
+    setBridgeLoadingProgressSafe(progress * 100)
 }
 
 function completeProgressBarFilling() {
@@ -62,14 +62,14 @@ function completeProgressBarFilling() {
     }
 
     let currentPercent = 90
-    bridge.game.setLoadingProgress(currentPercent)
+    setBridgeLoadingProgressSafe(currentPercent)
     progressBarFillingInterval = setInterval(() => {
         currentPercent++
         if (currentPercent > 99) {
             currentPercent = 99
         }
 
-        bridge.game.setLoadingProgress(currentPercent)
+        setBridgeLoadingProgressSafe(currentPercent)
 
         if (currentPercent >= 99) {
             clearInterval(progressBarFillingInterval)
@@ -87,6 +87,50 @@ window.addEventListener('pointerdown', () => {
 let bridgeScript = null
 let bridgeTimeout = null
 let bridgeLoaded = false
+let unityBootStarted = false
+
+function setBridgeLoadingProgressSafe(percent) {
+    try {
+        if (typeof bridge !== 'undefined' && bridge.game && typeof bridge.game.setLoadingProgress === 'function') {
+            bridge.game.setLoadingProgress(percent)
+        }
+    } catch (e) {
+        console.warn('Bridge loading progress update failed:', e)
+    }
+}
+
+function startUnityBoot() {
+    if (unityBootStarted) return
+    unityBootStarted = true
+
+    let unityLoader = document.createElement('script')
+    unityLoader.src = 'Build/7a2dbded24d57e056180125b1583e7c4.loader.js'
+    unityLoader.onload = () => {
+        createUnityInstance(
+            CANVAS,
+            {
+                dataUrl: 'Build/f93559579ed5dc22deb0084d5d14aacc.data.br',
+                frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.br',
+                codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.br',
+                streamingAssetsUrl: 'StreamingAssets',
+                companyName: 'AltTab3000',
+                productName: 'Mini Games Obby Challenge',
+                productVersion: '6.8',
+                // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
+                // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
+            },
+            onUnityLoadingProgressChanged)
+            .then((unityInstance) => {
+                window.unityInstance = unityInstance
+                CANVAS.focus()
+                flushMessageQueue()
+            })
+            .catch((error) => {
+                console.error(error)
+            })
+    }
+    document.body.appendChild(unityLoader)
+}
 
 function addLocalBridge() {
     if (bridgeLoaded) return
@@ -114,56 +158,44 @@ bridgeScript.onload = initializeBridge
 bridgeScript.onerror = addLocalBridge
 
 bridgeTimeout = setTimeout(() => {
-    console.warn('CDN bridge failed to load within 2 seconds, loading local bridge')
+    console.warn('CDN bridge failed to load within 8 seconds, loading local bridge')
     addLocalBridge()
-}, 2000)
+}, 8000)
 
 document.head.appendChild(bridgeScript)
 
 function initializeBridge() {
     clearTimeout(bridgeTimeout)
+    if (typeof bridge === 'undefined') {
+        console.error('Bridge object is undefined, starting Unity without bridge initialization')
+        startUnityBoot()
+        return
+    }
+
     bridge.engine = 'unity'
     bridge
         .initialize()
         .then(() => {
-            bridge.game.setLoadingProgress(0)
+            setBridgeLoadingProgressSafe(0)
             bridge.advertisement.on('banner_state_changed', state => sendMessageToUnity('OnBannerStateChanged', state))
             bridge.advertisement.on('interstitial_state_changed', state => sendMessageToUnity('OnInterstitialStateChanged', state))
             bridge.advertisement.on('rewarded_state_changed', state => sendMessageToUnity('OnRewardedStateChanged', state))
+            bridge.advertisement.on('advanced_banners_state_changed', state => sendMessageToUnity('OnAdvancedBannersStateChanged', state))
             bridge.game.on('visibility_state_changed', state => sendMessageToUnity('OnVisibilityStateChanged', state))
             bridge.platform.on('audio_state_changed', isEnabled => sendMessageToUnity('OnAudioStateChanged', isEnabled.toString()))
             bridge.platform.on('pause_state_changed', isPaused => sendMessageToUnity('OnPauseStateChanged', isPaused.toString()))
-
-            let unityLoader = document.createElement('script')
-            unityLoader.src = 'Build/7a2dbded24d57e056180125b1583e7c4.loader.js'
-            unityLoader.onload = () => {
-                createUnityInstance(
-                    CANVAS,
-                    {
-                        dataUrl: 'Build/a272f7d8197e8e3e4bcf66cf104e0a7b.data.br',
-                        frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.br',
-                        codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.br',
-                        streamingAssetsUrl: 'StreamingAssets',
-                        autoSyncPersistentDataPath: true,
-                        companyName: 'AltTab3000',
-                        productName: 'Mini Games Obby Challenge',
-                        productVersion: '6.8',
-                        // matchWebGLToCanvasSize: false, // Uncomment this to separately control WebGL canvas render size and DOM element size.
-                        // devicePixelRatio: 1, // Uncomment this to override low DPI rendering on high DPI displays.
-                    },
-                    onUnityLoadingProgressChanged)
-                    .then((unityInstance) => {
-                        window.unityInstance = unityInstance
-                        CANVAS.focus()
-                        flushMessageQueue()
-                    })
-                    .catch((error) => {
-                        console.error(error)
-                    })
-            }
-            document.body.appendChild(unityLoader)
+            startUnityBoot()
         })
-        .catch(error => console.error(error))
+        .catch(error => {
+            console.error('Bridge initialize failed:', error)
+            if (!bridgeLoaded) {
+                addLocalBridge()
+                return
+            }
+
+            console.warn('Local bridge is already in use, starting Unity without bridge initialization')
+            startUnityBoot()
+        })
 }
 
 // platform
@@ -205,8 +237,20 @@ window.getIsPlatformGetGameByIdSupported = function() {
     return bridge.platform.isGetGameByIdSupported.toString()
 }
 
-window.sendMessageToPlatform = function(message) {
-    bridge.platform.sendMessage(message)
+window.sendMessageToPlatform = function(message, options) {
+    if (options) {
+        options = JSON.parse(options)
+    }
+
+    bridge.platform.sendMessage(message, options)
+}
+
+window.sendCustomMessageToPlatform = function(id, options) {
+    if (options) {
+        options = JSON.parse(options)
+    }
+
+    bridge.platform.sendCustomMessage(id, options)
 }
 
 window.getServerTime = function() {
@@ -448,6 +492,26 @@ window.showRewarded = function(placement) {
     bridge.advertisement.showRewarded(placement)
 }
 
+window.getIsAdvancedBannersSupported = function() {
+    return bridge.advertisement.isAdvancedBannersSupported.toString()
+}
+
+window.getAdvancedBannersState = function() {
+    if (bridge.advertisement.advancedBannersState) {
+        return bridge.advertisement.advancedBannersState
+    } else {
+        return ''
+    }
+}
+
+window.showAdvancedBanners = function(placement) {
+    bridge.advertisement.showAdvancedBanners(placement)
+}
+
+window.hideAdvancedBanners = function() {
+    bridge.advertisement.hideAdvancedBanners()
+}
+
 window.checkAdBlock = function() {
     bridge.advertisement.checkAdBlock()
         .then(result => {
@@ -480,8 +544,16 @@ window.getIsAddToHomeScreenSupported = function() {
     return bridge.social.isAddToHomeScreenSupported.toString()
 }
 
+window.getIsAddToHomeScreenRewardSupported = function() {
+    return bridge.social.isAddToHomeScreenRewardSupported.toString()
+}
+
 window.getIsAddToFavoritesSupported = function() {
     return bridge.social.isAddToFavoritesSupported.toString()
+}
+
+window.getIsAddToFavoritesRewardSupported = function() {
+    return bridge.social.isAddToFavoritesRewardSupported.toString()
 }
 
 window.getIsRateSupported = function() {
@@ -575,6 +647,26 @@ window.rate = function() {
         })
         .catch(error => {
             sendMessageToUnity('OnRateCompleted', 'false')
+        })
+}
+
+window.getAddToHomeScreenReward = function() {
+    bridge.social.getAddToHomeScreenReward()
+        .then(() => {
+            sendMessageToUnity('OnGetAddToHomeScreenRewardCompleted', 'true')
+        })
+        .catch(error => {
+            sendMessageToUnity('OnGetAddToHomeScreenRewardCompleted', 'false')
+        })
+}
+
+window.getAddToFavoritesReward = function() {
+    bridge.social.getAddToFavoritesReward()
+        .then(() => {
+            sendMessageToUnity('OnGetAddToFavoritesRewardCompleted', 'true')
+        })
+        .catch(error => {
+            sendMessageToUnity('OnGetAddToFavoritesRewardCompleted', 'false')
         })
 }
 
