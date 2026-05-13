@@ -89,6 +89,43 @@ let bridgeTimeout = null
 let bridgeLoaded = false
 let unityBootStarted = false
 
+/**
+ * Мобильный фон (переключатель приложений / недавние): один канал в Unity = тот же OnVisibilityStateChanged,
+ * что и Playgama. События + опрос 250 ms с дедупом — если ОС не шлёт visibility/blur, всё равно поймаем
+ * document.hidden или потерю document.hasFocus().
+ */
+function installMobileBackgroundVisibilityFix() {
+    if (window._playgamaMobileBackgroundVisibilityInstalled) return
+    window._playgamaMobileBackgroundVisibilityInstalled = true
+    if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return
+
+    let lastSent = null
+
+    function pushVisibility(state) {
+        if (lastSent === state) return
+        lastSent = state
+        sendMessageToUnity('OnVisibilityStateChanged', state)
+    }
+
+    function recomputeFromDocument() {
+        const inBackground =
+            document.hidden ||
+            (typeof document.hasFocus === 'function' && !document.hasFocus())
+        pushVisibility(inBackground ? 'Hidden' : 'Visible')
+    }
+
+    window.addEventListener('blur', () => pushVisibility('Hidden'))
+    window.addEventListener('focus', () => recomputeFromDocument())
+    document.addEventListener('visibilitychange', recomputeFromDocument)
+    window.addEventListener('pagehide', () => pushVisibility('Hidden'))
+    window.addEventListener('pageshow', () => {
+        lastSent = null
+        recomputeFromDocument()
+    })
+
+    setInterval(recomputeFromDocument, 250)
+}
+
 function setBridgeLoadingProgressSafe(percent) {
     try {
         if (typeof bridge !== 'undefined' && bridge.game && typeof bridge.game.setLoadingProgress === 'function') {
@@ -109,7 +146,7 @@ function startUnityBoot() {
         createUnityInstance(
             CANVAS,
             {
-                dataUrl: 'Build/0bc1ee9334c7adbb00578915614051b4.data.unityweb',
+                dataUrl: 'Build/cc692d4ea4195cd7e94880f4db86f104.data.unityweb',
                 frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.unityweb',
                 codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.unityweb',
                 streamingAssetsUrl: 'StreamingAssets',
@@ -124,6 +161,7 @@ function startUnityBoot() {
                 window.unityInstance = unityInstance
                 CANVAS.focus()
                 flushMessageQueue()
+                installMobileBackgroundVisibilityFix()
             })
             .catch((error) => {
                 console.error(error)
