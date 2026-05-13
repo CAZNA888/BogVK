@@ -89,33 +89,107 @@ let bridgeTimeout = null
 let bridgeLoaded = false
 let unityBootStarted = false
 
-/** Мобильный VK/WebView: явный Page Visibility API + blur/focus, дубликаты глушим (тот же канал что Playgama). */
+/** Один дедуп для DOM + VK Bridge + Page Lifecycle → тот же Playgama OnVisibilityStateChanged. */
+let clientVisibilityLastSent = null
+function pushClientVisibilityToUnity(state) {
+    if (clientVisibilityLastSent === state) return
+    clientVisibilityLastSent = state
+    sendMessageToUnity('OnVisibilityStateChanged', state)
+}
+
+/** Мобильный VK/WebView: Page Visibility + blur/focus (дубли с bridge глушит pushClientVisibilityToUnity). */
 function installMobilePageVisibilityFallback() {
     if (window._playgamaMobilePageVisibilityFallbackInstalled) return
     window._playgamaMobilePageVisibilityFallbackInstalled = true
     if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return
 
-    let lastPushedVisibility = null
-    function pushUnityVisibility(state) {
-        if (lastPushedVisibility === state) return
-        lastPushedVisibility = state
-        sendMessageToUnity('OnVisibilityStateChanged', state)
-    }
-
     function syncDocumentHiddenToUnity() {
-        pushUnityVisibility(document.hidden ? 'Hidden' : 'Visible')
+        pushClientVisibilityToUnity(document.hidden ? 'Hidden' : 'Visible')
     }
 
     document.addEventListener('visibilitychange', syncDocumentHiddenToUnity)
 
     window.addEventListener('blur', () => {
-        pushUnityVisibility('Hidden')
+        pushClientVisibilityToUnity('Hidden')
     })
     window.addEventListener('focus', () => {
         syncDocumentHiddenToUnity()
     })
 
     syncDocumentHiddenToUnity()
+}
+
+/** VK клиент (Mini App / встроенный WebView): события скрытия/восстановления мини-приложения. */
+function installVkBridgeVisibilityFallback() {
+    if (window._playgamaVkBridgeVisibilityInstalled) return
+    window._playgamaVkBridgeVisibilityInstalled = true
+
+    let wired = false
+
+    function wireVkBridge(vk) {
+        if (wired || !vk || typeof vk.subscribe !== 'function') return false
+        const handler = function(e) {
+            const d = e && e.detail
+            if (!d) return
+            const type = d.type
+            if (type === 'VKWebAppViewHide') {
+                pushClientVisibilityToUnity('Hidden')
+            } else if (type === 'VKWebAppViewRestore') {
+                pushClientVisibilityToUnity('Visible')
+            }
+        }
+        try {
+            vk.subscribe(handler)
+            wired = true
+            return true
+        } catch (err) {
+            console.warn('[Playgama template] vkBridge.subscribe failed:', err)
+            return false
+        }
+    }
+
+    if (typeof window.vkBridge !== 'undefined' && wireVkBridge(window.vkBridge)) {
+        return
+    }
+
+    let attempts = 0
+    const maxAttempts = 50
+    const pollMs = 200
+    const timer = setInterval(function() {
+        if (!wired && typeof window.vkBridge !== 'undefined') {
+            if (wireVkBridge(window.vkBridge)) {
+                clearInterval(timer)
+                return
+            }
+        }
+        if (++attempts >= maxAttempts) {
+            clearInterval(timer)
+        }
+    }, pollMs)
+}
+
+/** Chromium: фоновая заморозка вкладки (иногда срабатывает, когда visibility молчит). */
+function installPageLifecycleVisibilityFallback() {
+    if (window._playgamaPageLifecycleVisibilityInstalled) return
+    window._playgamaPageLifecycleVisibilityInstalled = true
+    if (!/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) return
+
+    const onFreeze = function() {
+        pushClientVisibilityToUnity('Hidden')
+    }
+    const onResume = function() {
+        pushClientVisibilityToUnity('Visible')
+    }
+    if (typeof document !== 'undefined') {
+        document.addEventListener('freeze', onFreeze)
+        document.addEventListener('resume', onResume)
+    }
+}
+
+function installAllClientVisibilityFallbacks() {
+    installMobilePageVisibilityFallback()
+    installVkBridgeVisibilityFallback()
+    installPageLifecycleVisibilityFallback()
 }
 
 function setBridgeLoadingProgressSafe(percent) {
@@ -153,7 +227,7 @@ function startUnityBoot() {
                 window.unityInstance = unityInstance
                 CANVAS.focus()
                 flushMessageQueue()
-                installMobilePageVisibilityFallback()
+                installAllClientVisibilityFallbacks()
             })
             .catch((error) => {
                 console.error(error)
