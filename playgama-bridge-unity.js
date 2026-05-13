@@ -104,14 +104,14 @@ function startUnityBoot() {
     unityBootStarted = true
 
     let unityLoader = document.createElement('script')
-    unityLoader.src = 'Build/7a2dbded24d57e056180125b1583e7c4.loader.js'
+    unityLoader.src = 'Build/cee3bfd5589651a8b16e2a12b8abe5b3.loader.js'
     unityLoader.onload = () => {
         createUnityInstance(
             CANVAS,
             {
-                dataUrl: 'Build/f93559579ed5dc22deb0084d5d14aacc.data.br',
-                frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.br',
-                codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.br',
+                dataUrl: 'Build/0bc1ee9334c7adbb00578915614051b4.data.unityweb',
+                frameworkUrl: 'Build/7f5c1cf13f80f126262e184261eb47de.framework.js.unityweb',
+                codeUrl: 'Build/8be4173aaca279efe2a45320578a786f.wasm.unityweb',
                 streamingAssetsUrl: 'StreamingAssets',
                 companyName: 'AltTab3000',
                 productName: 'Mini Games Obby Challenge',
